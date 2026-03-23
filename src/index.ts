@@ -5,6 +5,8 @@ import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import { transactionRoutes } from './routes/transactions';
 import { errorHandler } from './middleware/errorHandler';
+import { connectRedis } from './config/redis';
+import { globalTimeout, haltOnTimedout, timeoutErrorHandler } from './middleware/timeout';
 
 dotenv.config();
 
@@ -16,10 +18,15 @@ const limiter = rateLimit({
   max: 100
 });
 
+// Security and parsing middleware
 app.use(helmet());
 app.use(cors());
 app.use(express.json());
 app.use(limiter);
+
+// Global timeout configuration
+app.use(globalTimeout);
+app.use(haltOnTimedout);
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -27,7 +34,19 @@ app.get('/health', (req, res) => {
 
 app.use('/api/transactions', transactionRoutes);
 
+// Timeout error handler (must be before general error handler)
+app.use(timeoutErrorHandler);
 app.use(errorHandler);
+
+// Initialize Redis connection
+connectRedis()
+  .then(() => {
+    console.log('Redis initialized');
+  })
+  .catch((err) => {
+    console.error('Failed to connect to Redis:', err);
+    console.warn('Distributed locks will not be available');
+  });
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
