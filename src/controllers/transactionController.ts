@@ -9,7 +9,10 @@ import { addTransactionJob, getJobProgress } from '../queue';
 import { z } from "zod";
 
 // ------------------ Services ------------------
+// Initialize services (will be used in future implementations)
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const stellarService = new StellarService();
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const mobileMoneyService = new MobileMoneyService();
 const transactionModel = new TransactionModel();
 const kycService = new KYCService();
@@ -147,13 +150,26 @@ if (transaction.status === TransactionStatus.Pending) {
   const now = Date.now();
   if ((now - createdAt) / (1000 * 60) > timeoutMinutes) {
     await transactionModel.updateStatus(id, TransactionStatus.Failed);
+
+  const diffMinutes = (now - createdAt) / (1000 * 60);
+
+  if (diffMinutes > timeoutMinutes) {
+    await transactionModel.updateStatus(id, TransactionStatus.Failed);
+
+    console.log("Transaction timed out (on fetch)", {
+      transactionId: id,
+      timeoutMinutes,
+      reason: "Transaction timeout",
+    });
+
     transaction.status = TransactionStatus.Failed;
-    (transaction as any).reason = "Transaction timeout";
+    (transaction as { reason?: string }).reason = "Transaction timeout";
   }
 }
 
     res.json({ ...transaction, jobProgress });
-  } catch (error) {
+  } catch (err) {
+    console.error('Failed to fetch transaction:', err);
     res.status(500).json({ error: "Failed to fetch transaction" });
   }
 };
@@ -188,5 +204,14 @@ export const cancelTransactionHandler = async (req: Request, res: Response) => {
     res.json({ message: "Transaction cancelled successfully", transaction: updatedTransaction });
   } catch (error) {
     res.status(500).json({ error: "Failed to cancel transaction" });
+    return res.json({
+      message: "Transaction cancelled successfully",
+      transaction: updatedTransaction,
+    });
+  } catch (err) {
+    console.error('Failed to cancel transaction:', err);
+    res.status(500).json({
+      error: "Failed to cancel transaction",
+    });
   }
 };
