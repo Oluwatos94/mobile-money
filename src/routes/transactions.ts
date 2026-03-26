@@ -1,19 +1,20 @@
 import { Router } from "express";
 import {
-  depositHandler,
-  withdrawHandler,
-  getTransactionHandler,
   cancelTransactionHandler,
-  validateTransaction,
+  depositHandler,
+  getTransactionHandler,
   getTransactionHistoryHandler,
-  updateNotesHandler,
   searchTransactionsHandler,
+  updateNotesHandler,
+  withdrawHandler,
 } from "../controllers/transactionController";
+import { validateTransaction } from "../middleware/validateTransaction";
 import { TimeoutPresets, haltOnTimedout } from "../middleware/timeout";
+import { authenticateToken } from "../middleware/auth";
+import { validateTransaction } from "../middleware/validateTransaction";
 
 export const transactionRoutes = Router();
 
-// --- Transaction History ---
 transactionRoutes.get(
   "/",
   TimeoutPresets.quick,
@@ -21,7 +22,6 @@ transactionRoutes.get(
   getTransactionHistoryHandler,
 );
 
-// Static paths before /:id
 transactionRoutes.get(
   "/search",
   TimeoutPresets.quick,
@@ -31,32 +31,28 @@ transactionRoutes.get(
 
 transactionRoutes.post(
   "/deposit",
+  authenticateToken,
   TimeoutPresets.long,
   haltOnTimedout,
   validateTransaction,
-  depositHandler,
+  depositHandler
 );
 
 transactionRoutes.post(
   "/withdraw",
+  authenticateToken,
   TimeoutPresets.long,
   haltOnTimedout,
   validateTransaction,
-  withdrawHandler,
+  withdrawHandler
 );
 
 transactionRoutes.get(
   "/:id",
+  authenticateToken,
   TimeoutPresets.quick,
   haltOnTimedout,
-  getTransactionHandler,
-);
-
-transactionRoutes.patch(
-  "/:id/notes",
-  TimeoutPresets.quick,
-  haltOnTimedout,
-  updateNotesHandler,
+  getTransactionHandler
 );
 
 transactionRoutes.post(
@@ -64,4 +60,11 @@ transactionRoutes.post(
   TimeoutPresets.quick,
   haltOnTimedout,
   cancelTransactionHandler,
+);
+
+transactionRoutes.patch(
+  "/:id/notes",
+  TimeoutPresets.quick,
+  haltOnTimedout,
+  updateNotesHandler,
 );
