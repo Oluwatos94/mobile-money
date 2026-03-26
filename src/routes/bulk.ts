@@ -28,6 +28,7 @@ import { Readable } from "stream";
 import { TransactionModel, TransactionStatus } from "../models/transaction";
 import { MobileMoneyService } from "../services/mobilemoney/mobileMoneyService";
 import { StellarService } from "../services/stellar/stellarService";
+import { authenticateToken } from "../middleware/auth";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -256,6 +257,7 @@ export const bulkRoutes = Router();
  */
 bulkRoutes.post(
   "/",
+  authenticateToken,
   upload.single("file"),
   async (req: Request, res: Response) => {
     if (!req.file) {
@@ -346,7 +348,7 @@ bulkRoutes.use(
  *   - createdAt   : ISO timestamp
  *   - completedAt : ISO timestamp (only when status = "completed")
  */
-bulkRoutes.get("/:jobId", (req: Request, res: Response) => {
+bulkRoutes.get("/:jobId", authenticateToken, (req: Request, res: Response) => {
   const job = jobs.get(req.params.jobId);
 
   if (!job) {
