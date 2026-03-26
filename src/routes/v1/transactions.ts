@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { VersionedRequest } from "../../middleware/apiVersion";
+import { setApiVersion } from "../../middleware/apiVersion";
 import {
   listAmlAlertsHandler,
   depositHandler,
@@ -25,11 +25,7 @@ transactionRoutesV1.post(
   "/deposit",
   TimeoutPresets.long,
   haltOnTimedout,
-  (req: VersionedRequest, res, next) => {
-    // Add API version to request for handler
-    req.apiVersion = "v1";
-    next();
-  },
+  setApiVersion("v1"),
   depositHandler
 );
 
@@ -38,10 +34,7 @@ transactionRoutesV1.post(
   "/withdraw",
   TimeoutPresets.long,
   haltOnTimedout,
-  (req: VersionedRequest, res, next) => {
-    req.apiVersion = "v1";
-    next();
-  },
+  setApiVersion("v1"),
   withdrawHandler
 );
 
@@ -51,10 +44,7 @@ transactionRoutesV1.get(
   TimeoutPresets.quick,
   haltOnTimedout,
   validateTransactionFilters,
-  (req: VersionedRequest, res, next) => {
-    req.apiVersion = "v1";
-    next();
-  },
+  setApiVersion("v1"),
   listTransactionsHandler,
 );
 
@@ -88,10 +78,7 @@ transactionRoutesV1.get(
   "/:id",
   TimeoutPresets.quick,
   haltOnTimedout,
-  (req: VersionedRequest, res, next) => {
-    req.apiVersion = "v1";
-    next();
-  },
+  setApiVersion("v1"),
   getTransactionHandler
 );
 
@@ -100,10 +87,7 @@ transactionRoutesV1.patch(
   "/:id/notes",
   TimeoutPresets.quick,
   haltOnTimedout,
-  (req: VersionedRequest, res, next) => {
-    req.apiVersion = "v1";
-    next();
-  },
+  setApiVersion("v1"),
   updateNotesHandler
 );
 
@@ -112,10 +96,7 @@ transactionRoutesV1.get(
   "/search",
   TimeoutPresets.quick,
   haltOnTimedout,
-  (req: VersionedRequest, res, next) => {
-    req.apiVersion = "v1";
-    next();
-  },
+  setApiVersion("v1"),
   searchTransactionsHandler
 );
 
@@ -124,10 +105,7 @@ transactionRoutesV1.put(
   "/:id/metadata",
   TimeoutPresets.quick,
   haltOnTimedout,
-  (req: VersionedRequest, res, next) => {
-    req.apiVersion = "v1";
-    next();
-  },
+  setApiVersion("v1"),
   updateMetadataHandler,
 );
 
@@ -136,10 +114,7 @@ transactionRoutesV1.patch(
   "/:id/metadata",
   TimeoutPresets.quick,
   haltOnTimedout,
-  (req: VersionedRequest, res, next) => {
-    req.apiVersion = "v1";
-    next();
-  },
+  setApiVersion("v1"),
   patchMetadataHandler,
 );
 
@@ -148,10 +123,7 @@ transactionRoutesV1.delete(
   "/:id/metadata",
   TimeoutPresets.quick,
   haltOnTimedout,
-  (req: VersionedRequest, res, next) => {
-    req.apiVersion = "v1";
-    next();
-  },
+  setApiVersion("v1"),
   deleteMetadataKeysHandler,
 );
 
@@ -160,9 +132,6 @@ transactionRoutesV1.post(
   "/search/metadata",
   TimeoutPresets.quick,
   haltOnTimedout,
-  (req: VersionedRequest, res, next) => {
-    req.apiVersion = "v1";
-    next();
-  },
+  setApiVersion("v1"),
   searchByMetadataHandler,
 );

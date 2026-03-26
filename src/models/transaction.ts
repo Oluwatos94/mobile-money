@@ -69,6 +69,12 @@ export interface Transaction {
   referenceNumber: string;
   type: "deposit" | "withdraw";
   amount: string;
+  /** ISO 4217 currency code of the original transaction amount (default: USD). */
+  currency?: string;
+  /** Amount in the original currency (mirrors `amount`). */
+  originalAmount?: string;
+  /** Amount converted to the base currency (USD) for uniform aggregation. */
+  convertedAmount?: string;
   phoneNumber: string;
   provider: string;
   stellarAddress: string;
@@ -85,7 +91,9 @@ export interface Transaction {
   webhook_last_attempt_at?: Date | null;
   webhook_delivered_at?: Date | null;
   webhook_last_error?: string | null;
-  metadata: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+  userId?: string | null;
+  retryCount?: number;
   createdAt: Date;
   updatedAt?: Date | null;
 }
@@ -118,77 +126,36 @@ export function mapTransactionRow(
 ): Transaction | null {
   if (!row) return null;
   const dbRow = row as Record<string, unknown>;
-  const created = dbRow.created_at ?? dbRow.createdAt;
-  const updated = dbRow.updated_at ?? dbRow.updatedAt;
-  const idempotencyExpires =
-    dbRow.idempotency_expires_at ?? dbRow.idempotencyExpiresAt;
-  const metadata = dbRow.metadata;
-
+  const created = dbRow.created_at ?? row.createdAt;
   return {
-    id: String(dbRow.id),
-    referenceNumber: String(dbRow.reference_number ?? dbRow.referenceNumber ?? ""),
-    type: (dbRow.type as Transaction["type"]) || "deposit",
-    amount: String(dbRow.amount ?? ""),
-    phoneNumber: String(dbRow.phone_number ?? dbRow.phoneNumber ?? ""),
-    provider: String(dbRow.provider ?? ""),
-    stellarAddress: String(dbRow.stellar_address ?? dbRow.stellarAddress ?? ""),
-    status: dbRow.status as TransactionStatus,
-    tags: Array.isArray(dbRow.tags) ? (dbRow.tags as string[]) : [],
+    id: String(row.id),
+    referenceNumber: String(
+      dbRow.reference_number ?? row.referenceNumber ?? "",
+    ),
+    type: (row.type as Transaction["type"]) || "deposit",
+    amount: String(row.amount ?? ""),
+    phoneNumber: String(dbRow.phone_number ?? row.phoneNumber ?? ""),
+    provider: String(row.provider ?? ""),
+    stellarAddress: String(dbRow.stellar_address ?? row.stellarAddress ?? ""),
+    status: row.status as TransactionStatus,
+    tags: Array.isArray(row.tags) ? (row.tags as string[]) : [],
     notes:
-      dbRow.notes != null && dbRow.notes !== ""
-        ? String(dbRow.notes)
-        : undefined,
-    adminNotes:
-      dbRow.admin_notes != null && dbRow.admin_notes !== ""
-        ? String(dbRow.admin_notes)
-        : dbRow.adminNotes != null && dbRow.adminNotes !== ""
-          ? String(dbRow.adminNotes)
-          : undefined,
+      row.notes != null && row.notes !== "" ? String(row.notes) : undefined,
     admin_notes:
       dbRow.admin_notes != null && dbRow.admin_notes !== ""
         ? String(dbRow.admin_notes)
         : undefined,
-    userId:
-      dbRow.user_id != null
-        ? String(dbRow.user_id)
-        : dbRow.userId != null
-          ? String(dbRow.userId)
-          : null,
-    idempotencyKey:
-      dbRow.idempotency_key != null
-        ? String(dbRow.idempotency_key)
-        : dbRow.idempotencyKey != null
-          ? String(dbRow.idempotencyKey)
-          : null,
-    idempotencyExpiresAt:
-      idempotencyExpires instanceof Date
-        ? idempotencyExpires
-        : idempotencyExpires
-          ? new Date(String(idempotencyExpires))
-          : null,
-    retryCount: Number(dbRow.retry_count ?? dbRow.retryCount ?? 0),
-    webhook_delivery_status:
-      dbRow.webhook_delivery_status != null
-        ? (String(dbRow.webhook_delivery_status) as Transaction["webhook_delivery_status"])
-        : undefined,
-    webhook_last_attempt_at:
-      dbRow.webhook_last_attempt_at instanceof Date
-        ? dbRow.webhook_last_attempt_at
-        : dbRow.webhook_last_attempt_at
-          ? new Date(String(dbRow.webhook_last_attempt_at))
-          : null,
-    webhook_delivered_at:
-      dbRow.webhook_delivered_at instanceof Date
-        ? dbRow.webhook_delivered_at
-        : dbRow.webhook_delivered_at
-          ? new Date(String(dbRow.webhook_delivered_at))
-          : null,
-    webhook_last_error:
-      dbRow.webhook_last_error != null ? String(dbRow.webhook_last_error) : null,
     metadata:
-      metadata && typeof metadata === "object" && !Array.isArray(metadata)
-        ? (metadata as Record<string, unknown>)
+      row.metadata &&
+      typeof row.metadata === "object" &&
+      !Array.isArray(row.metadata)
+        ? (row.metadata as Record<string, unknown>)
         : {},
+    userId:
+      dbRow.user_id != null || row.userId != null
+        ? String(dbRow.user_id ?? row.userId)
+        : null,
+    retryCount: Number(dbRow.retry_count ?? row.retryCount ?? 0),
     createdAt:
       created instanceof Date ? created : new Date(String(created ?? "")),
     updatedAt:
@@ -207,28 +174,17 @@ export class TransactionModel {
     const metadata = validateMetadata(data.metadata);
     const referenceNumber = await generateReferenceNumber();
 
-    const result = await pool.query<Transaction>(
-      `INSERT INTO transactions (
-        reference_number,
-        type,
-        amount,
-        phone_number,
-        provider,
-        stellar_address,
-        status,
-        tags,
-        notes,
-        user_id,
-        idempotency_key,
-        idempotency_expires_at,
-        metadata
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-      RETURNING ${TRANSACTION_SELECT_COLUMNS}`,
+    const result = await pool.query(
+      `INSERT INTO transactions (reference_number, type, amount, currency, original_amount, converted_amount, phone_number, provider, stellar_address, status, tags, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       RETURNING *`,
       [
         referenceNumber,
         data.type,
-        String(data.amount),
+        data.amount,
+        data.currency ?? "USD",
+        data.originalAmount ?? data.amount,
+        data.convertedAmount ?? null,
         data.phoneNumber,
         data.provider,
         data.stellarAddress,
@@ -257,10 +213,15 @@ export class TransactionModel {
   }
 
   /** Paginated list, newest first. `limit` is capped at 100. */
-  async list(limit = 50, offset = 0, startDate?: string, endDate?: string): Promise<Transaction[]> {
+  async list(
+    limit = 50,
+    offset = 0,
+    startDate?: string,
+    endDate?: string,
+  ): Promise<Transaction[]> {
     const capped = Math.min(Math.max(limit, 1), 100);
     const off = Math.max(offset, 0);
-    
+
     let query = "SELECT * FROM transactions WHERE 1=1";
     const params: any[] = [];
     let paramIndex = 1;
@@ -414,7 +375,7 @@ export class TransactionModel {
 
   /** Increments retry_count after a failed transient attempt (before the next try). */
   async incrementRetryCount(id: string): Promise<number> {
-    const result = await pool.query<{ retry_count: number }>(
+    const result = await pool.query(
       `UPDATE transactions
        SET retry_count = retry_count + 1,
            updated_at = CURRENT_TIMESTAMP
@@ -423,7 +384,7 @@ export class TransactionModel {
       [id],
     );
 
-    return result.rows[0]?.retry_count ?? 0;
+    return Number(result.rows[0]?.retry_count ?? 0);
   }
 
   async updateNotes(id: string, notes: string): Promise<Transaction | null> {
@@ -620,16 +581,21 @@ export class TransactionModel {
   }
 
   async releaseAllExpiredIdempotencyKeys(): Promise<number> {
-    const result = await pool.query(
-      `UPDATE transactions
-       SET idempotency_key = NULL,
-           idempotency_expires_at = NULL,
-           updated_at = CURRENT_TIMESTAMP
-       WHERE idempotency_expires_at IS NOT NULL
-         AND idempotency_expires_at <= CURRENT_TIMESTAMP`,
+    const result = await pool.query<{ released: number }>(
+      `WITH updated AS (
+         UPDATE transactions
+         SET idempotency_key = NULL,
+             idempotency_expires_at = NULL,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE idempotency_key IS NOT NULL
+           AND idempotency_expires_at IS NOT NULL
+           AND idempotency_expires_at <= CURRENT_TIMESTAMP
+         RETURNING 1
+       )
+       SELECT COUNT(*)::int AS released FROM updated`,
     );
 
-    return result.rowCount ?? 0;
+    return result?.rows?.[0]?.released || 0;
   }
 
   async findActiveByIdempotencyKey(
@@ -652,7 +618,8 @@ export class TransactionModel {
   }
 
   async countByStatuses(statuses: TransactionStatus[]): Promise<number> {
-    const validStatuses = statuses.length > 0 ? statuses : Object.values(TransactionStatus);
+    const validStatuses =
+      statuses.length > 0 ? statuses : Object.values(TransactionStatus);
     const result = await pool.query<{ total: number }>(
       `SELECT COUNT(*)::int AS total
        FROM transactions
@@ -670,7 +637,8 @@ export class TransactionModel {
   ): Promise<Transaction[]> {
     const capped = Math.min(Math.max(limit, 1), 1000);
     const off = Math.max(offset, 0);
-    const validStatuses = statuses.length > 0 ? statuses : Object.values(TransactionStatus);
+    const validStatuses =
+      statuses.length > 0 ? statuses : Object.values(TransactionStatus);
 
     const result = await pool.query<Transaction>(
       `SELECT ${TRANSACTION_SELECT_COLUMNS}
